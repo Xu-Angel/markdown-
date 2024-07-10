@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title></title>
+    <script>
+      function loadResource(obj) {
+        const element = document.createElement(obj.tag)
+        delete obj.tag
+        Object.entries(obj).forEach(([key, value]) => {
+          element[key] = value
+        })
+        document.head.appendChild(element)
+      }
+      const t = new Date().getTime()
+      ;[
+        {
+          tag: 'link',
+          rel: 'stylesheet',
+          type: 'text/css',
+          href: `./default.min.css?t=${t}`,
+        },
+        {
+          tag: 'link',
+          rel: 'stylesheet',
+          type: 'text/css',
+          href: `./github-markdown.min.css?t=${t}`,
+        },
+        {
+          tag: 'script',
+          src: `./marked.min.js?t=${t}`,
+        },
+        {
+          tag: 'script',
+          src: `./clipboard.min.js?t=${t}`,
+        },
+        {
+          tag: 'script',
+          src: `./highlight.min.js?t=${t}`,
+        },
+        {
+          tag: 'script',
+          src: `./index.umd.js?t=${t}`,
+        },
+        {
+          tag: 'link',
+          rel: 'stylesheet',
+          type: 'text/css',
+          href: `./index.css?t=${t}`,
+        },
+      ].forEach((obj) => {
+        loadResource(obj)
+      })
+    </script>
+    <style>
+      body {
+        opacity: 0;
+      }
+      /* Tooltip样式 */
+      .tooltip {
+        position: fixed;
+        top: 50px;
+        left: 50%; /* 水平居中 */
+        transform: translate(-50%, -50%); /* 偏移自身宽度和高度的50%来实现居中 */
+        z-index: 1000;
+        padding: 10px;
+        background: #333;
+        color: #fff;
+        border-radius: 4px;
+        font-size: 14px;
+        white-space: nowrap;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+
+      .tooltip.show {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <article class="markdown-body">
+      <div class="tooltip" id="copyTooltip">复制成功</div>
+      <div id="leftTree"></div>
+      <div id="content"></div>
+      <div id="fileTree">
+        <div class="headeTitle">文档目录</div>
+        <!-- <ul> -->
+        <!-- <li class="active">
+            <a href="./a.html">jee</a>
+          </li>
+          <li>
+            <a href="./a.html">awk</a>
+          </li>
+          <li>
+            <a href="./a.html">txxx</a>
+          </li> -->
+        <!-- </ul> -->
+      </div>
+    </article>
+    <script>
+      window.onload = function () {
+        const files = ['cat', 'datetime', 'dbf', 'jee', 'logfile', 'ping', 'process', 'stat', 'telnet']
+        const fileUl = document.createElement('ul')
+        files.forEach((item) => {
+          const li = document.createElement('li')
+          li.className = item
+          const a = document.createElement('a')
+          a.setAttribute('href', `./index.html?doc=${item}&t=${new Date().getTime()}`)
+          a.textContent = item
+          li.appendChild(a)
+          fileUl.appendChild(li)
+        })
+        document.getElementById('fileTree').appendChild(fileUl)
+        const url = new URL(window.location.href)
+        const searchParams = new URLSearchParams(url.search)
+        const title = searchParams.get('title') || '命令文档说明'
+        const doc = searchParams.get('doc') || files[0]
+        const file = `./files/${doc}.md`
+        if (title) {
+          document.title = title
+        }
+        document.querySelector(`li.${doc}`).classList.add('active')
+        hljs.highlightAll()
+        fetch(file)
+          .then((response) => response.text())
+          .then((markdown) => {
+            const { markedHighlight } = globalThis.markedHighlight
+            console.log(marked, globalThis)
+            const ul = document.createElement('ul')
+            const markedInstance = new marked.Marked(
+              markedHighlight({
+                langPrefix: 'hljs language-',
+                highlight(code, lang, info) {
+                  const language = hljs.getLanguage(lang) ? lang : 'shell'
+                  return hljs.highlight(code, { language }).value
+                },
+              })
+            )
+            const renderer = {
+              heading(text, depth) {
+                const escapedText = text.toLowerCase().replace(/[^\w]+/g, '-')
+                const li = document.createElement('li')
+                const a = document.createElement('a')
+                a.className = 'clickA'
+                a.setAttribute('name', escapedText)
+                a.setAttribute('href', `#${escapedText}`)
+                a.setAttribute('title', `${text}`)
+                a.textContent = text
+                li.appendChild(a)
+                li.className = `item-${depth} `
+                ul.appendChild(li)
+                return `
+                  <h${depth} class="heading-element">
+                    <a id="${escapedText}" name="${text}" class="anchor" href="#${text}" title="${text}">
+                    </a>
+                    ${text}
+                  </h${depth}>`
+              },
+            }
+            markedInstance.use({ renderer })
+            markedInstance.use({
+              gfm: true, // 启动类似于Github样式的Markdown语法
+              pedantic: false, // 只解析符合Markdwon定义的，不修正Markdown的错误
+              sanitize: true, // 原始输出，忽略HTML标签（关闭后，可直接渲染HTML标签）
+            })
+
+            document.getElementById('content').innerHTML = markedInstance.parse(markdown)
+            document.getElementById('leftTree').appendChild(ul)
+            document.body.style.opacity = 1
+            const codeBlocks = document.querySelectorAll('pre')
+            codeBlocks.forEach((codeBlock) => {
+              const copyButton = document.createElement('div')
+              copyButton.className = 'copyBtn'
+              copyButton.textContent = '复制'
+              codeBlock.appendChild(copyButton)
+
+              const clib = new ClipboardJS(copyButton, {
+                text: function (trigger) {
+                  return trigger.parentNode.querySelector('code').textContent
+                },
+              })
+              clib.on('success', function (e) {
+                // 隐藏tooltip（如果之前显示）
+                var tooltip = document.getElementById('copyTooltip')
+                tooltip.classList.remove('show')
+
+                // 显示tooltip
+                setTimeout(function () {
+                  tooltip.classList.add('show')
+                  // 在一段时间后隐藏tooltip
+                  setTimeout(function () {
+                    tooltip.classList.remove('show')
+                  }, 1000) // 1秒后隐藏
+                }, 100) // 稍微延迟显示，以便用户能看到反馈
+              })
+            })
+            // 假设你的渲染函数为每个链接添加了一个特定的类名，如 'toc-link'
+            const navItems = document.querySelectorAll('.clickA')
+            const removeActive = () =>
+              navItems.forEach((link) => {
+                link.classList.remove('active')
+              })
+
+            navItems.forEach((link) => {
+              link.addEventListener('click', function (event) {
+                removeActive()
+                link.classList.add('active')
+                event.preventDefault()
+                const target = document.getElementById(this.name)
+                if (target) {
+                  // 监听滚动事件
+                  window.removeEventListener('scroll', highlightSection)
+                  console.log('监听滚动事件移除')
+                  target.scrollIntoView({
+                    block: 'start',
+                    behavior: 'smooth', // 平滑滚动
+                  })
+                  setTimeout(() => {
+                    console.log('监听滚动事件添加')
+                    window.addEventListener('scroll', highlightSection)
+                  }, 1500)
+                }
+              })
+            })
+
+            var sections = document.querySelectorAll('.heading-element>a') // 根据你的标题层级调整
+
+            function highlightSection() {
+              if (window.timer) {
+                clearTimeout(window.timer)
+              }
+              window.timer = setTimeout(() => {
+                console.log('highlightSection')
+                var curYPos = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0
+                var curYHeight = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight
+
+                // 找到最接近当前滚动位置的标题并高亮
+                var closestSection = null
+                var minDistance = Infinity
+
+                sections.forEach(function (section) {
+                  var sectionTop = section.offsetTop
+                  var sectionBottom = sectionTop + section.offsetHeight
+                  var distance = Math.abs(curYPos + curYHeight / 2 - (sectionTop + section.offsetHeight / 2)) // 使用中心点计算距离
+
+                  if (curYPos < sectionBottom && curYPos + curYHeight > sectionTop) {
+                    console.log(section, 'section')
+                    // 如果当前滚动区域与标题有交集
+                    if (distance < minDistance) {
+                      minDistance = distance
+                      closestSection = section
+                    }
+                  }
+                })
+
+                if (closestSection) {
+                  var correspondingNavItem = document.querySelector('#leftTree a[href="#' + closestSection.id + '"]')
+                  if (correspondingNavItem) {
+                    navItems.forEach(function (navItem) {
+                      navItem.classList.remove('active') // 清除所有高亮
+                    })
+                    correspondingNavItem.classList.add('active')
+                  }
+                }
+              }, 20)
+            }
+            // 初始调用
+            highlightSection()
+            // 监听滚动事件
+            window.addEventListener('scroll', highlightSection)
+          })
+      }
+    </script>
+  </body>
+</html>
